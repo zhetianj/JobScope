@@ -26,8 +26,8 @@ def get_link(com_url):
     bysc = BeautifulSoup(html.read(), "lxml")
     return bysc
     
-def get_rate(name):
-    com_url = 'https://www.indeed.com/cmp/' + name + '/reviews'
+def get_rate(company_name):
+    com_url = search_url(company_name)
     bysc = get_link(com_url)
     #get category scores
     category_list = bysc.findAll("div",{"class":"cmp-ReviewCategories-category"})
@@ -49,10 +49,11 @@ def get_rate(name):
     review_span = bysc.findAll("a", {"data-tn-element":"reviews-viewAllLink"})
     rate_cnt = int(review_span[0].contents[0].split(' ')[2].replace(',',''))
     #get category df
-    rate_summary = pd.DataFrame([[float(i) for i in rate_list]],columns = cate_list, index = [name])
+    rate_summary = pd.DataFrame([[float(i) for i in rate_list]],columns = cate_list)
+    rate_summary['company'] = company_name
     #get other features
-    rate_summary['rate_cnt'] = rate_cnt
-    rate_summary['average_rate'] = average_rate
+    #rate_summary['rate_cnt'] = rate_cnt
+    #rate_summary['average_rate'] = average_rate
     
     return rate_summary
     
@@ -124,6 +125,7 @@ def show_trend(company):
     #convert string rates to numeric
     company['rates'] = company['rates'].astype('float')
     trend = company.groupby(['times']).mean()
+    
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1)
     ax.plot(trend['rates'], 'o-', linewidth = 2)
@@ -194,7 +196,7 @@ def main(company_name):
                             'positions':positions, 
                             'times':times, 
                             'text':review_text})
-    
+    company['company'] = company_name
     return company
 
 def search_url(company_name):
@@ -216,6 +218,8 @@ def search_url(company_name):
     #click the review button
     driver.find_elements_by_class_name("cmp-MenuItem-link.cmp-u-noUnderline")[2].click()
     
+    return driver.current_url
+    
 
     
 if __name__ == '__main__':
@@ -224,31 +228,44 @@ if __name__ == '__main__':
     plt.rcParams['axes.unicode_minus'] = False
     
     company_name = input("Enter the company you want to search:").capitalize()
-    file_name = company_name + ".csv"
-    company_exist = True
+    review_file_name = "Indeed_review.csv"
+    rate_file_name = "Indeed_rate.csv"
     
-    #try to find company
+            
     try:
-        if os.path.exists(file_name):
-            company_df = pd.read_csv(file_name)
-            del company_df[company_df.columns[0]]
-            show_trend(company_df)
-            #If need to search online
+        #show trend, check file existance first
+        if os.path.exists(review_file_name):
+            company = pd.read_csv(review_file_name)
+            del company[company.columns[0]]
+            if company_name in set(company['company']):
+                show_trend(company_df[company_df['company'] == company_name])
+            else:
+                #append a new record
+                company = main(company_name)
+                company.to_csv(review_file_name, mode = 'a', header = False)
+        #create review file
         else:
-        #then get data from website
-            #five indicators
-    
-            #for reviews and trend
-            company_df = main(company_name)
-            show_trend(company_df)
-            company_df.to_csv(file_name)
-            company_rates = get_rate(company_name)
+            company = main(company_name)
+            company.to_csv(review_file_name, mode = 'a',  header = True)
+            
+        show_trend(company)
         
-        #show radar plot
+        #show radar, check file existance first
+        if os.path.exists(rate_file_name):
+            rates = pd.read_csv(rate_file_name)
+            if company_name in set(rates['company']):
+                company_rates = rates[rates['company'] == company_name]
+                del company_rates[company_rates.columns[0]]
+            else:
+                company_rates = get_rate(company_name)
+                company_rates.to_csv(rate_file_name, mode = 'a' , header = False)
+        #create review file
+        else:
+            company_rates = get_rate(company_name)
+            company_rates.to_csv(rate_file_name, mode = 'a' , header = True)
+            
         value = list(company_rates.iloc[0, 0:5])
         show_radar(company_name, value)
-        
-    except:
-            print("Company doesn't exist, please start again.")
-
     
+    except:
+        print("Sorry we couldn't find such company")
